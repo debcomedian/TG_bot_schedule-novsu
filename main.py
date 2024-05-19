@@ -1,7 +1,10 @@
 import pandas as pd
+
+import psycopg2
 import requests
 import telebot
 from bs4 import BeautifulSoup as BS
+import xml.etree.ElementTree as ET
 import tempfile
 import os
 import types
@@ -9,7 +12,6 @@ import asyncio
 import aiohttp
 from io import BytesIO
 import xlrd
-import pandas as pd
 import re
 from telebot import types
 
@@ -22,62 +24,225 @@ day_of_week = None
 week_type = None
 college = None
 course = None
-group = None
 
-def get_file_schedule_PTK(group_student):
+user_context = {}
+group = []
+days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
+days_full = ['ПОНЕДЕЛЬНИК', 'ВТОРНИК', 'СРЕДА', 'ЧЕТВЕРГ', 'ПЯТНИЦА', 'СУББОТА']
+
+def init_list_group(cur, soup):
+    substring_ptk = "/npe/files/_timetable/ptk/"
+    substring_pedcol = "/npe/files/_timetable/pedcol/"
+    substring_medcol = "/npe/files/_timetable/medcol/"
+    substring_spour = "/npe/files/_timetable/spour/"
+    substring_spoinpo = "/npe/files/_timetable/spoinpo/"
+    
+    list_group_ptk, list_group_pedcol, list_group_medcol = [], [], []
+    list_group_spour, list_group_spoinpo = [], []
+    list_groups = soup.find_all('a')
+    for element in list_groups:  
+        if substring_ptk in str(element):
+            if '_' not in element.get_text():
+                list_group_ptk.append(element.get_text())
+        elif substring_pedcol in str(element):
+            list_group_pedcol.append(element.get_text())
+        elif substring_medcol in str(element):
+            list_group_medcol.append(element.get_text())
+        elif substring_spour in str(element):
+            list_group_spour.append(element.get_text())
+        elif substring_spoinpo in str(element):
+            list_group_spoinpo.append(element.get_text())
+            
+    course = 1
+    first_group_number = int(list_group_ptk[0]) // 1000
+    for num_group in list_group_ptk:
+        num_group = int(num_group)
+        temp = num_group // 1000;
+        if (first_group_number != temp):
+            course += 1
+            first_group_number = temp
+        cur.execute('INSERT INTO groups_students_ptk VALUES (%s, %s)', (course, num_group))
+
+def init_find_distance(group_student, day_of_week, df):
+    #Найти индекс столбца, содержащего дни недели
+    col_index = next((col for col in df.columns if any(day in df[col].values for day in days_full)), None)
+    if col_index is not None:
+        # Найти индексы строк, содержащих дни недели
+        days_of_week = {'ПН': 'ПОНЕДЕЛЬНИК', 'ВТ': 'ВТОРНИК', 'СР': 'СРЕДА',
+                        'ЧТ': 'ЧЕТВЕРГ', 'ПТ': 'ПЯТНИЦА', 'СБ': 'СУББОТА'}
+        day_indices = {day: [] for day in days_of_week.values()}
+        
+        for index, value in enumerate(df[col_index]):
+            if value in days_of_week.values():
+                day_indices[value].append(index)
+
+        if day_of_week.upper() in days_of_week:
+            current_day = days_of_week[day_of_week.upper()]
+            next_day = days_of_week.get(init_get_next_weekday(day_of_week.upper()), None)
+
+            if next_day is not None:
+                if len(day_indices[current_day]) > 0 and len(day_indices[next_day]) > 0:
+                    distance = day_indices[next_day][0] - day_indices[current_day][-1]
+                    return distance
+    return 0
+
+def init_get_next_weekday(days):
+    days_of_week = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ']
+    current_day_index = days_of_week.index(days)
+    return days_of_week[(current_day_index + 1) % len(days_of_week)]
+
+def init_get_df(content):
+    with tempfile.NamedTemporaryFile(delete=True) as tmp_file:
+        tmp_file.write(content)
+        tmp_file.seek(0)
+        df = pd.read_excel(tmp_file)
+    return df
+
+def init_schedule_ptk(group_student, day_of_week, content):
+
+    df = init_get_df(content)
+    day_of_week_values = {'Пн': 'ПОНЕДЕЛЬНИК', 'Вт': 'ВТОРНИК', 'Ср': 'СРЕДА',
+                          'Чт': 'ЧЕТВЕРГ', 'Пт': 'ПЯТНИЦА', 'Сб': 'СУББОТА'}
+    row_index = None
+    for row_idx, row in df.iterrows():
+        for col_idx, cell in enumerate(row):
+            if cell == day_of_week_values.get(day_of_week):
+                row_index = row_idx
+                break
+        if row_index is not None:
+            break
+
+    column_index = None
+    for column_index, column_name in enumerate(df.columns):
+        if group_student in df[column_name].values:
+            break
+
+    schedule = []
+    #print(f'group_student --> {group_student}\nday_os_week --> {day_of_week}\n')
+    for i in range(init_find_distance(group_student, day_of_week, df)):
+        time = df.iloc[row_index + i, column_index - 1]
+        info = df.iloc[row_index + i, column_index]
+        timeN = df.iloc[row_index + i - 1, column_index - 1]
+        info = remove_lek_from_info(info)
+        #print(info)
+        # Обычная неделя без верха низа:
+
+        if pd.notna(time) and pd.notna(info):
+            # Предмет без групп
+            if len(info.split(', ')) == 3:
+                subject, teacher, audience = info.split(', ')
+                schedule.append(
+                    f' ⏰Время: {time} \n 📚Предмет: {subject} \n👨‍🏫Преподаватель: {teacher} \n 📝Аудитория: {audience}\n\n')
+            # Предмет по группам:
+            elif len(info.split(', ')) == 5:
+                subject, teacher1, audience1, teacher2, audience2 = info.split(', ')
+                if pd.notna(time) and pd.notna(info):
+                    schedule.append(
+                        f' 📚Предмет: {subject} \n'
+                        f' Группа 1: \n ⏰Время: {time} \n 👨‍🏫Преподаватель: {teacher1} \n 📝Аудитория: {audience1} \n\n' +
+                        f' Группа 2: \n ⏰Время: {time} \n 👨‍🏫Преподаватель: {teacher2} \n 📝Аудитория: {audience2} \n\n')
+    
+        # Если появляется верхний нижний предмет:
+
+        elif pd.isna(time) and pd.notna(info):
+            # Предмет без групп нижней недели:
+            if len(info.split(', ')) == 3:
+                subject, teacher, audience = info.split(', ')
+                schedule.append(
+                    f' ⏰Время: {timeN} \n Предмет: {subject} \n Преподаватель: {teacher} \n Аудитория: {audience} - только по нижней неделе \n\n')
+            # Предмет по группам нижней недели:
+            elif len(info.split(', ')) == 5:
+                subject1, teacher1, audience1, subject2, teacher2, audience2 = info.split(', ')
+                if pd.notna(time) and pd.notna(info):
+                    schedule.append(
+                        f' Группа 1: \n ⏰Время: {time} \n 📚Предмет: {subject1} \n 👨‍🏫Преподаватель: {teacher1} \n 📝Аудитория: {audience1} - только по нижней неделе \n\n' +
+                        f' Группа 2: \n ⏰Время: {time} \n 📚Предмет: {subject2} \n 👨‍🏫Преподаватель: {teacher2} \n 📝Аудитория: {audience2} - только по нижней неделе \n\n')
+                    
+    return schedule
+
+def init_send_schedule(schedule, cur, number_group, day, week_type):
+    for i, elem in enumerate(schedule):
+        if ' - только по нижней неделе' in elem:
+            schedule[i - 1] = schedule[i - 1].rstrip('\n\n')
+            schedule[i - 1] += ' - только по верхней неделе \n\n'
+
+    for i, elem in enumerate(schedule):
+        if week_type == 'Верхняя':
+            if ' - только по нижней неделе' in elem:
+                del schedule[i]
+        elif week_type == 'Нижняя':
+            if ' - только по верхней неделе' in elem:
+                del schedule[i]
+    cur.execute(f'INSERT INTO group_{number_group} VALUES (%s, %s, %s)', (day, week_type == "Верхняя", ''.join(schedule)))
+
+def init_db():
+    global group
+    
+    conn = psycopg2.connect(dbname='novsu_schedule', user='postgres',
+                            password='debadmin', host='localhost')
+    cur = conn.cursor()
+    cur.execute('DROP TABLE IF EXISTS groups_students_ptk;'
+                'DROP TABLE IF EXISTS groups_students_pedcol;'
+                'DROP TABLE IF EXISTS groups_students_medcol;'
+                'DROP TABLE IF EXISTS groups_students_spour;'
+                'DROP TABLE IF EXISTS groups_students_spoinpo;'
+                'CREATE TABLE groups_students_ptk'
+                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);'
+                'CREATE TABLE groups_students_pedcol' 
+                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);'
+                'CREATE TABLE groups_students_medcol' 
+                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);'
+                'CREATE TABLE groups_students_spour'
+                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);'
+                'CREATE TABLE groups_students_spoinpo'
+                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);');
     # Отправить HTTP-запрос на сайт и получить HTML-код страницы
     url = 'https://portal.novsu.ru/univer/timetable/spo/'
     response = requests.get(url)
     html = response.text
 
-    # Использовать BeautifulSoup для парсинга HTML-кода страницы
     soup = BS(html, 'html.parser')
-
-#    print(group_student)
-    link = soup.find('a', string=group_student)
- #   print('link done')
-#    print(link)
-    link_href = link['href']
- #   print('link_href done')
- #   print(link_href)
-    file_url = f"https://portal.novsu.ru/{link_href}"
- #   print(file_url)
-
-    # Отправить HTTP-запрос на сайт и получить файл
-    response = requests.get(file_url)
-
-    # Создать временный файл
-    with tempfile.NamedTemporaryFile(delete=True) as tmp_file:
-        # Записать содержимое файла в временный файл
-        tmp_file.write(response.content)
-        tmp_file.seek(0)  # сбросить указатель файла в начало
-
-        # Прочитать файл с помощью pandas
-        df = pd.read_excel(tmp_file)
-    return df
-
-
-
+    init_list_group(cur, soup)
+    conn.commit()
+    
+    cur.execute('SELECT group_id FROM groups_students_ptk')
+    temp = cur.fetchall()
+    group = []
+    for item in temp:
+        group.append(str(item[0]))
+            
+    for number_group in group:
+        link = soup.find('a', string="0" + str(number_group) if (int(number_group) < 1000) else number_group)  
+        if (link):
+            link_href = link['href']
+            file_url = f"https://portal.novsu.ru/{link_href}"
+            response = requests.get(file_url)
+            print(number_group)
+            cur.execute(f'DROP TABLE IF EXISTS group_{number_group}');
+            cur.execute(f'CREATE TABLE group_{number_group}(week_day VARCHAR(2) NOT NULL,'
+                         'group_week_type BOOLEAN NOT NULL, group_data VARCHAR(1024) NOT NULL)')
+            for day in days:
+                schedule = init_schedule_ptk(number_group, day, response.content)
+                if schedule != []:
+                    init_send_schedule(schedule, cur, number_group, day, "Верхняя")
+                    init_send_schedule(schedule, cur, number_group, day, "Нижняя")
+            conn.commit()
+    cur.close()
+    conn.close()
+         
 @bot.message_handler(commands=['start'])
 def main_menu(message):
     markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
     item_geolacation = types.KeyboardButton('Узнать геопозицию')
     item_schedule = types.KeyboardButton('Узнать расписание')
     markup_replay.add(item_schedule, item_geolacation)
-    bot.send_message(message.chat.id, 'Привет! Что вы хотите узнать?', reply_markup=markup_replay)
+    bot.send_message(message.chat.id, 'Привет! Что вы хотите узнать?',
+                     reply_markup=markup_replay)
 
-
-user_context = {}
-group = ['3781', '3782', '3791', '3792', '3911', '3912', '3913', '3914', '3921', '3951', '3952', '3953', '3954', '3955',
-         '3981', '3982', '3983', '3990', '3991', '3992', '3993', '3994', '3995', '3996', '3861', '3971', '3972', '3973',
-         '2781', '2782', '2791', '2792', '2911', '2912', '2913', '2921', '2951', '2952', '2953', '2981', '2982', '2983',
-         '2991', '2992', '2993', '2994', '2995', '2996', '2861', '2862', '2863', '2971', '1791', '1792', '1911', '1921',
-         '1951', '1952', '1981', '1991', '1992', '1994', '1861', '1862', '1971', '0901', '0902', '0911', '0921', '0931',
-         '0941', '0951', '0952', '0861']
-day = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
 
 @bot.message_handler(content_types=['text'])
 def bot_massage(message):
+    global group
     if message.chat.type == 'private':
         if 'Узнать геопозицию' in message.text:
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -89,8 +254,10 @@ def bot_massage(message):
             item_med = types.KeyboardButton('ИМО')
             item_ped = types.KeyboardButton('ПИ')
             item_back = types.KeyboardButton('Главное меню')
-            markup_replay.add(item_glav, item_ptk, item_anton, item_itys, item_ibhi, item_med, item_ped, item_back)
-            bot.send_message(message.chat.id, 'Выберите интересующий институт', reply_markup=markup_replay)
+            markup_replay.add(item_glav, item_ptk, item_anton, item_itys,
+                              item_ibhi, item_med, item_ped, item_back)
+            bot.send_message(message.chat.id, 'Выберите интересующий институт',
+                             reply_markup=markup_replay)
 
         elif message.text == 'Главный корпус':
             latitude = 58.542306
@@ -143,7 +310,8 @@ def bot_massage(message):
             item_PED = types.KeyboardButton('СПО ИНПО')
             item_back = types.KeyboardButton('Главное меню')
             markup_replay.add(item_PTK, item_PED, item_IUR, item_MED, item_EKO, item_back)
-            bot.send_message(message.chat.id, '🏫Какой колледж вас интересует?', reply_markup=markup_replay)
+            bot.send_message(message.chat.id, '🏫Какой колледж вас интересует?',
+                             reply_markup=markup_replay)
 
         elif message.text == 'ПТК':
             user_context[message.chat.id] = 'ПТК'
@@ -178,6 +346,7 @@ def bot_massage(message):
             current_context = user_context.get(message.chat.id)
             if current_context == 'ПТК':
                 markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
+
                 item_3781 = types.KeyboardButton('3781')
                 item_3782 = types.KeyboardButton('3782')
                 item_3791 = types.KeyboardButton('3791')
@@ -205,13 +374,16 @@ def bot_massage(message):
                 item_back = types.KeyboardButton('Главное меню')
                 global group_student
                 group_student = message.text
-                markup_replay.add(item_3781, item_3782, item_3791, item_3792, item_3911, item_3912, item_3913,
-                                  item_3914, item_3921, item_3951, item_3952, item_3953, item_3954, item_3955,
-                                  item_3981, item_3982, item_3983, item_3990, item_3991, item_3992, item_3993,
-                                  item_3994, item_3995, item_3996, item_back)
-                bot.send_message(message.chat.id, '📝Выберите свою группу', reply_markup=markup_replay)
 
-
+                markup_replay.add(item_3781, item_3782, item_3791, item_3792,
+                                  item_3911, item_3912, item_3913, item_3914,
+                                  item_3921, item_3951, item_3952, item_3953,
+                                  item_3954, item_3955, item_3981, item_3982,
+                                  item_3983, item_3990, item_3991, item_3992,
+                                  item_3993, item_3994, item_3995, item_3996,
+                                  item_back)
+                bot.send_message(message.chat.id, '📝Выберите свою группу',
+                                 reply_markup=markup_replay)
 
             elif current_context == 'СПО ИНПО':
                 markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -222,8 +394,8 @@ def bot_massage(message):
                 item_back = types.KeyboardButton('Главное меню')
                 group_student = message.text
                 markup_replay.add(item_3861, item_3971, item_3972, item_3973, item_back)
-                bot.send_message(message.chat.id, '📝Выберите свою группу', reply_markup=markup_replay)
-
+                bot.send_message(message.chat.id, '📝Выберите свою группу',
+                                 reply_markup=markup_replay)
 
         elif message.text == '2 курс':
             current_context = user_context.get(message.chat.id)
@@ -251,10 +423,15 @@ def bot_massage(message):
                 item_2996 = types.KeyboardButton('2996')
                 item_back = types.KeyboardButton('Главное меню')
                 group_student = message.text
-                markup_replay.add(item_2781, item_2782, item_2791, item_2792, item_2911, item_2912, item_2913,
-                                  item_2921, item_2951, item_2952, item_2953, item_2981, item_2982, item_2983,
-                                  item_2991, item_2992, item_2993, item_2994, item_2995, item_2996, item_back)
-                bot.send_message(message.chat.id, '📝Выберете свою группу.', reply_markup=markup_replay)
+
+                markup_replay.add(item_2781, item_2782, item_2791, item_2792,
+                                  item_2911, item_2912, item_2913, item_2921,
+                                  item_2951, item_2952, item_2953, item_2981,
+                                  item_2982, item_2983, item_2991, item_2992,
+                                  item_2993, item_2994, item_2995, item_2996,
+                                  item_back)
+                bot.send_message(message.chat.id, '📝Выберете свою группу.',
+                                 reply_markup=markup_replay)
 
             elif current_context == 'СПО ИНПО':
                 markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -265,8 +442,9 @@ def bot_massage(message):
                 item_back = types.KeyboardButton('Главное меню')
                 group_student = message.text
                 markup_replay.add(item_2861, item_2862, item_2863, item_2971, item_back)
-                bot.send_message(message.chat.id, 'Выберете свою группу.', reply_markup=markup_replay)
 
+                bot.send_message(message.chat.id, 'Выберете свою группу.',
+                                 reply_markup=markup_replay)
 
         elif message.text == '3 курс':
             current_context = user_context.get(message.chat.id)
@@ -284,9 +462,12 @@ def bot_massage(message):
                 item_1994 = types.KeyboardButton('1994')
                 item_back = types.KeyboardButton('Главное меню')
                 group_student = message.text
-                markup_replay.add(item_1791, item_1792, item_1911, item_1921, item_1951, item_1952, item_1981,
-                                  item_1991, item_1992, item_1994, item_back)
-                bot.send_message(message.chat.id, '📝Выберете свою группу.', reply_markup=markup_replay)
+
+                markup_replay.add(item_1791, item_1792, item_1911, item_1921,
+                                  item_1951, item_1952, item_1981, item_1991,
+                                  item_1992, item_1994, item_back)
+                bot.send_message(message.chat.id, '📝Выберете свою группу.',
+                                 reply_markup=markup_replay)
 
             elif current_context == 'СПО ИНПО':
                 markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -296,8 +477,8 @@ def bot_massage(message):
                 item_back = types.KeyboardButton('Главное меню')
                 group_student = message.text
                 markup_replay.add(item_1861, item_1862, item_1971, item_back)
-                bot.send_message(message.chat.id, '📝Выберете свою группу.', reply_markup=markup_replay)
-
+                bot.send_message(message.chat.id, '📝Выберете свою группу.',
+                                 reply_markup=markup_replay)
 
         elif message.text == '4 курс':
             current_context = user_context.get(message.chat.id)
@@ -313,9 +494,11 @@ def bot_massage(message):
                 item_0952 = types.KeyboardButton('0952')
                 item_back = types.KeyboardButton('Главное меню')
                 group_student = message.text
-                markup_replay.add(item_0901, item_0902, item_0911, item_0921, item_0931, item_0941, item_0951,
-                                  item_0952, item_back)
-                bot.send_message(message.chat.id, 'Выберете свою группу.', reply_markup=markup_replay)
+                markup_replay.add(item_0901, item_0902, item_0911, item_0921,
+                                  item_0931, item_0941, item_0951, item_0952,
+                                  item_back)
+                bot.send_message(message.chat.id, 'Выберете свою группу.',
+                                 reply_markup=markup_replay)
 
             elif current_context == 'СПО ИНПО':
                 markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -323,7 +506,8 @@ def bot_massage(message):
                 item_back = types.KeyboardButton('Главное меню')
                 group_student = message.text
                 markup_replay.add(item_0861, item_back)
-                bot.send_message(message.chat.id, 'Выберете свою группу.', reply_markup=markup_replay)
+                bot.send_message(message.chat.id, 'Выберете свою группу.',
+                                 reply_markup=markup_replay)
 
 
         elif message.text == 'Мед.колледж':
@@ -334,7 +518,8 @@ def bot_massage(message):
             item_4 = types.KeyboardButton('4 курс')'''
             item_back = types.KeyboardButton('Главное меню')
             markup_replay.add(item_back)
-            bot.send_message(message.chat.id, 'В разработке.', reply_markup=markup_replay)
+            bot.send_message(message.chat.id, 'В разработке.',
+                             reply_markup=markup_replay)1
 
         elif message.text == 'СПО ИЦЭУС':
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -344,7 +529,8 @@ def bot_massage(message):
             item_4 = types.KeyboardButton('4 курс')'''
             item_back = types.KeyboardButton('Главное меню')
             markup_replay.add(item_back)
-            bot.send_message(message.chat.id, 'В разработке.', reply_markup=markup_replay)
+            bot.send_message(message.chat.id, 'В разработке.',
+                             reply_markup=markup_replay)
 
         elif message.text == 'СПО ИЮР':
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -354,14 +540,16 @@ def bot_massage(message):
             item_4 = types.KeyboardButton('4 курс')'''
             item_back = types.KeyboardButton('Главное меню')
             markup_replay.add(item_back)
-            bot.send_message(message.chat.id, 'В разработке.', reply_markup=markup_replay)
+            bot.send_message(message.chat.id, 'В разработке.',
+                             reply_markup=markup_replay)
 
         elif message.text == 'Главное меню':
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
             item_geolacation = types.KeyboardButton('Узнать геопозицию')
             item_schedule = types.KeyboardButton('Узнать расписание')
             markup_replay.add(item_schedule, item_geolacation)
-            bot.send_message(message.chat.id, 'Главное меню', reply_markup=markup_replay)
+            bot.send_message(message.chat.id, 'Главное меню',
+                             reply_markup=markup_replay)
 
 
         elif message.text.isdigit():
@@ -372,7 +560,8 @@ def bot_massage(message):
                 item_vt = types.KeyboardButton('Нижняя')
                 item_back = types.KeyboardButton('Главное меню')
                 markup_replay.add(item_pn, item_vt, item_back)
-                bot.send_message(message.chat.id, '❗️ Выберите неделю', reply_markup=markup_replay)
+                bot.send_message(message.chat.id, '❗️ Выберите неделю',
+                                 reply_markup=markup_replay)
             else:
                 bot.send_message(message.chat.id, 'Такой группы несуществует!')
 
@@ -387,8 +576,11 @@ def bot_massage(message):
             item_back = types.KeyboardButton('Главное меню')
             global week_type
             week_type = message.text
-            markup_replay.add(item_pn, item_vt, item_sr, item_ch, item_pt, item_sb, item_back)
-            bot.send_message(message.chat.id, '📅 Выберите день недели', reply_markup=markup_replay)
+
+            markup_replay.add(item_pn, item_vt, item_sr, item_ch,
+                              item_pt, item_sb, item_back)
+            bot.send_message(message.chat.id, '📅 Выберите день недели',
+                             reply_markup=markup_replay)
 
         elif message.text == 'Нижняя':
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -400,15 +592,20 @@ def bot_massage(message):
             item_sb = types.KeyboardButton('Сб')
             week_type = message.text
             item_back = types.KeyboardButton('Главное меню')
-            markup_replay.add(item_pn, item_vt, item_sr, item_ch, item_pt, item_sb, item_back)
-            bot.send_message(message.chat.id, '📅 Выберите день недели', reply_markup=markup_replay)
+            markup_replay.add(item_pn, item_vt, item_sr, item_ch,
+                              item_pt, item_sb, item_back)
+            bot.send_message(message.chat.id, '📅 Выберите день недели',
+                             reply_markup=markup_replay)
 
-        elif message.text in day:
+        elif message.text in days:
             day_of_week = message.text
             print(college)
             if college == 'ПТК':
                 schedule = get_schedule_ptk(group_student, day_of_week, week_type)
-                bot.send_message(message.chat.id, f'Расписание на {day_of_week}, неделя - {week_type}, группа -  {group_student}:\n' + '\n'.join(schedule))
+                if schedule is None:
+                    bot.send_message(message.chat.id, 'Нет занятий')
+                else:
+                    bot.send_message(message.chat.id, f'Расписание на {day_of_week}, неделя - {week_type}, группа -  {group_student}:\n' + '\n'.join(schedule))
             elif college == 'СПО ИНПО':
                 print('ИНПО')
 
@@ -420,34 +617,6 @@ def bot_massage(message):
                              reply_markup=markup_replay)
 
 
-def find_distance(group_student, day_of_week):
-    df = get_file_schedule_PTK(group_student)
-
-    # Найти индекс столбца, содержащего дни недели
-    col_index = next((col for col in df.columns if any(day in df[col].values for day in ['ПОНЕДЕЛЬНИК', 'ВТОРНИК', 'СРЕДА', 'ЧЕТВЕРГ', 'ПЯТНИЦА', 'СУББОТА'])), None)
-    print("col_index --> " + col_index)
-    # Найти индексы строк, содержащих дни недели
-    days_of_week = {'ПН': 'ПОНЕДЕЛЬНИК', 'ВТ': 'ВТОРНИК', 'СР': 'СРЕДА', 'ЧТ': 'ЧЕТВЕРГ', 'ПТ': 'ПЯТНИЦА', 'СБ': 'СУББОТА'}
-    day_indices = {day: [] for day in days_of_week.values()}
-
-    for index, value in enumerate(df[col_index]):
-        if value in days_of_week.values():
-            day_indices[value].append(index)
-
-    if day_of_week.upper() in days_of_week:
-        current_day = days_of_week[day_of_week.upper()]
-        next_day = days_of_week.get(get_next_weekday(day_of_week.upper()), None)
-
-        if next_day is not None:
-            if len(day_indices[current_day]) > 0 and len(day_indices[next_day]) > 0:
-                distance = day_indices[next_day][0] - day_indices[current_day][-1]
-                return distance
-
-def get_next_weekday(day):
-    days_of_week = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ']
-    current_day_index = days_of_week.index(day)
-    return days_of_week[(current_day_index + 1) % len(days_of_week)]
-
 
 def remove_lek_from_info(info):
     if isinstance(info, str) and ',' in info:
@@ -458,92 +627,17 @@ def remove_lek_from_info(info):
 
 
 def get_schedule_ptk(group_student, day_of_week, week_type):
-    df = get_file_schedule_PTK(group_student)
-
-    day_of_week_values = {'Пн': 'ПОНЕДЕЛЬНИК', 'Вт': 'ВТОРНИК', 'Ср': 'СРЕДА', 'Чт': 'ЧЕТВЕРГ', 'Пт': 'ПЯТНИЦА',
-                          'Сб': 'СУББОТА'}
-    row_index = None
-    for row_idx, row in df.iterrows():
-        for col_idx, cell in enumerate(row):
-            if cell == day_of_week_values.get(day_of_week):
-                row_index = row_idx
-                break
-        if row_index is not None:
-            break
-
-
-
-#    print(day_of_week)
-#    print(group_student)
-    # Искать номер группы в файле
-    column_index = None
-    for column_index, column_name in enumerate(df.columns):
-        if group_student in df[column_name].values:
-            break
-
-
-#    print(column_index,row_index)
-
-    schedule = []
-
-    for i in range(find_distance(group_student,day_of_week)):
-        time = df.iloc[row_index + i, column_index - 1]
-        info = df.iloc[row_index + i, column_index]
-        timeN = df.iloc[row_index + i - 1, column_index - 1]
-        info = remove_lek_from_info(info)
-        print(info)
-        # Обычная неделя без верха низа:
-
-        if pd.notna(time) and pd.notna(info):
-            # Предмет без групп
-            if len(info.split(', ')) == 3:
-                subject, teacher, audience = info.split(', ')
-                schedule.append(
-                    f' ⏰Время: {time} \n 📚Предмет: {subject} \n 👨‍🏫Преподаватель: {teacher} \n 📝Аудитория: {audience}\n\n')
-            # Предмет по группам:
-            elif len(info.split(', ')) == 5:
-                subject, teacher1, audience1, teacher2, audience2 = info.split(', ')
-                if pd.notna(time) and pd.notna(info):
-                    schedule.append(
-                        f' 📚Предмет: {subject} \n'
-                        f' Группа 1: \n ⏰Время: {time} \n 👨‍🏫Преподаватель: {teacher1} \n 📝Аудитория: {audience1}\n\n' +
-                        f' Группа 2: \n ⏰Время: {time} \n 👨‍🏫Преподаватель: {teacher2} \n 📝Аудитория: {audience2}\n\n')
-
-
-        # Если появляется верхний нижний предмет:
-
-        elif pd.isna(time) and pd.notna(info):
-            # Предмет без групп нижней недели:
-            if len(info.split(', ')) == 3:
-                subject, teacher, audience = info.split(', ')
-                schedule.append(
-                    f' ⏰Время: {timeN} \n Предмет: {subject} \n Преподаватель: {teacher} \n Аудитория: {audience} - только по нижней неделе \n\n')
-            # Предмет по группам нижней недели:
-            elif len(info.split(', ')) == 5:
-                subject1, teacher1, audience1, subject2, teacher2, audience2 = info.split(', ')
-                if pd.notna(time) and pd.notna(info):
-                    schedule.append(
-                        f' Группа 1: \n ⏰Время: {time} \n 📚Предмет: {subject1} \n 👨‍🏫Преподаватель: {teacher1} \n 📝Аудитория: {audience1} - только по нижней неделе \n\n' +
-                        f' Группа 2: \n ⏰Время: {time} \n 📚Предмет: {subject2} \n 👨‍🏫Преподаватель: {teacher2} \n 📝Аудитория: {audience2} - только по нижней неделе \n\n')
-
-
-
-    for i, elem in enumerate(schedule):
-        if ' - только по нижней неделе' in elem:
-            schedule[i - 1] = schedule[i - 1].rstrip('\n\n')
-            schedule[i - 1] += ' - только по верхней неделе \n'
-
-
-    for i, elem in enumerate(schedule):
-        if week_type == 'Верхняя':
-            if ' - только по нижней неделе' in elem:
-                del schedule[i]
-        elif week_type == 'Нижняя':
-            if ' - только по верхней неделе' in elem:
-                del schedule[i]
-
-    return schedule
-
+    conn = psycopg2.connect(dbname='novsu_schedule', user='postgres',
+                            password='debadmin', host='localhost')
+    cur = conn.cursor()
+    cur.execute(f'SELECT group_data FROM group_{group_student} WHERE week_day=\'{day_of_week}\' AND group_week_type={week_type=="Верхняя"}')
+    shedule = cur.fetchone()
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    return shedule
+    
 def get_schedule_inpo(group_number_ptk, day_of_week_ptk, week_type):
     print('Get_schedule start')
     df = get_file_schedule_PTK(group_number_ptk)
@@ -752,4 +846,5 @@ def get_schedule_inpo(group_number_ptk, day_of_week_ptk, week_type):
         print(auditors)
 
 if __name__ == '__main__':
+    init_db()
     bot.polling()
