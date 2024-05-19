@@ -24,18 +24,42 @@ week_type = None
 college = None
 course = None
 user_context = {}
-group = ['3781', '3782', '3791', '3792', '3911', '3912', '3913', '3914',
-         '3921', '3951', '3952', '3953', '3954', '3955', '3981', '3982',
-         '3983', '3990', '3991', '3992', '3993', '3994', '3995', '3996',
-         '3861', '3971', '3972', '3973', '2781', '2782', '2791', '2792',
-         '2911', '2912', '2913', '2921', '2951', '2952', '2953', '2981',
-         '2982', '2983', '2991', '2992', '2993', '2994', '2995', '2996',
-         '2861', '2862', '2863', '2971', '1791', '1792', '1911', '1921',
-         '1951', '1952', '1981', '1991', '1992', '1994', '1861', '1862',
-         '1971', '0901', '0902', '0911', '0921', '0931', '0941', '0951',
-         '0952', '0861']
+group = []
 days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
 days_full = ['ПОНЕДЕЛЬНИК', 'ВТОРНИК', 'СРЕДА', 'ЧЕТВЕРГ', 'ПЯТНИЦА', 'СУББОТА']
+
+def init_list_group(cur, soup):
+    substring_ptk = "/npe/files/_timetable/ptk/"
+    substring_pedcol = "/npe/files/_timetable/pedcol/"
+    substring_medcol = "/npe/files/_timetable/medcol/"
+    substring_spour = "/npe/files/_timetable/spour/"
+    substring_spoinpo = "/npe/files/_timetable/spoinpo/"
+    
+    list_group_ptk, list_group_pedcol, list_group_medcol = [], [], []
+    list_group_spour, list_group_spoinpo = [], []
+    list_groups = soup.find_all('a')
+    for element in list_groups:  
+        if substring_ptk in str(element):
+            if '_' not in element.get_text():
+                list_group_ptk.append(element.get_text())
+        elif substring_pedcol in str(element):
+            list_group_pedcol.append(element.get_text())
+        elif substring_medcol in str(element):
+            list_group_medcol.append(element.get_text())
+        elif substring_spour in str(element):
+            list_group_spour.append(element.get_text())
+        elif substring_spoinpo in str(element):
+            list_group_spoinpo.append(element.get_text())
+            
+    course = 1
+    first_group_number = int(list_group_ptk[0]) // 1000
+    for num_group in list_group_ptk:
+        num_group = int(num_group)
+        temp = num_group // 1000;
+        if (first_group_number != temp):
+            course += 1
+            first_group_number = temp
+        cur.execute('INSERT INTO groups_students_ptk VALUES (%s, %s)', (course, num_group))
 
 def init_find_distance(group_student, day_of_week, df):
     #Найти индекс столбца, содержащего дни недели
@@ -75,7 +99,6 @@ def init_get_df(content):
 def init_schedule_ptk(group_student, day_of_week, content):
 
     df = init_get_df(content)
-    
     day_of_week_values = {'Пн': 'ПОНЕДЕЛЬНИК', 'Вт': 'ВТОРНИК', 'Ср': 'СРЕДА',
                           'Чт': 'ЧЕТВЕРГ', 'Пт': 'ПЯТНИЦА', 'Сб': 'СУББОТА'}
     row_index = None
@@ -151,27 +174,44 @@ def init_send_schedule(schedule, cur, number_group, day, week_type):
     cur.execute(f'INSERT INTO group_{number_group} VALUES (%s, %s, %s)', (day, week_type == "Верхняя", ''.join(schedule)))
 
 def init_db():
-    conn = psycopg2.connect(dbname='polytech', user='postgres',
+    global group
+    
+    conn = psycopg2.connect(dbname='novsu_schedule', user='postgres',
                             password='debadmin', host='localhost')
     cur = conn.cursor()
-    cur.execute('DROP TABLE IF EXISTS groups_students');
-    cur.execute('CREATE TABLE groups_students(group_course SMALLINT NOT NULL,'
-                'group_id SMALLINT NOT NULL)');
+    cur.execute('DROP TABLE IF EXISTS groups_students_ptk;'
+                'DROP TABLE IF EXISTS groups_students_pedcol;'
+                'DROP TABLE IF EXISTS groups_students_medcol;'
+                'DROP TABLE IF EXISTS groups_students_spour;'
+                'DROP TABLE IF EXISTS groups_students_spoinpo;'
+                'CREATE TABLE groups_students_ptk'
+                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);'
+                'CREATE TABLE groups_students_pedcol' 
+                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);'
+                'CREATE TABLE groups_students_medcol' 
+                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);'
+                'CREATE TABLE groups_students_spour'
+                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);'
+                'CREATE TABLE groups_students_spoinpo'
+                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);');
     # Отправить HTTP-запрос на сайт и получить HTML-код страницы
     url = 'https://portal.novsu.ru/univer/timetable/spo/'
     response = requests.get(url)
     html = response.text
 
-    # Использовать BeautifulSoup для парсинга HTML-кода страницы
     soup = BS(html, 'html.parser')
-
+    init_list_group(cur, soup)
+    conn.commit()
+    
+    cur.execute('SELECT group_id FROM groups_students_ptk')
+    temp = cur.fetchall()
+    group = []
+    for item in temp:
+        group.append(str(item[0]))
+            
     for number_group in group:
-        link = soup.find('a', string=number_group)
+        link = soup.find('a', string="0" + str(number_group) if (int(number_group) < 1000) else number_group)  
         if (link):
-            course = int(number_group) // 1000;
-            if (course == 0): course = 4
-            elif (course == 1): course = 3;
-            elif (course == 3): course = 1; 
             link_href = link['href']
             file_url = f"https://portal.novsu.ru/{link_href}"
             response = requests.get(file_url)
@@ -180,24 +220,14 @@ def init_db():
             cur.execute(f'CREATE TABLE group_{number_group}(week_day VARCHAR(2) NOT NULL,'
                          'group_week_type BOOLEAN NOT NULL, group_data VARCHAR(1024) NOT NULL)')
             for day in days:
-                print(day)
                 schedule = init_schedule_ptk(number_group, day, response.content)
                 if schedule != []:
                     init_send_schedule(schedule, cur, number_group, day, "Верхняя")
                     init_send_schedule(schedule, cur, number_group, day, "Нижняя")
-            cur.execute('INSERT INTO groups_students VALUES (%s, %s)', (course, number_group))
-    conn.commit()
+            conn.commit()
     cur.close()
     conn.close()
             
-
-def get_file_schedule_PTK(group_student):
-    conn = psycopg2.connect(dbname='polytech', user='postgres',
-                            password='debadmin', host='localhost')
-    cur = conn.cursor()
-
-
-
 @bot.message_handler(commands=['start'])
 def main_menu(message):
     markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -210,6 +240,7 @@ def main_menu(message):
 
 @bot.message_handler(content_types=['text'])
 def bot_massage(message):
+    global group
     if message.chat.type == 'private':
         if 'Узнать геопозицию' in message.text:
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -313,6 +344,7 @@ def bot_massage(message):
             current_context = user_context.get(message.chat.id)
             if current_context == 'ПТК':
                 markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                
                 item_3781 = types.KeyboardButton('3781')
                 item_3782 = types.KeyboardButton('3782')
                 item_3791 = types.KeyboardButton('3791')
@@ -517,6 +549,7 @@ def bot_massage(message):
 
 
         elif message.text.isdigit():
+            
             if message.text in group:
                 group_student = message.text
                 markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -589,7 +622,7 @@ def remove_lek_from_info(info):
 
 
 def get_schedule_ptk(group_student, day_of_week, week_type):
-    conn = psycopg2.connect(dbname='polytech', user='postgres',
+    conn = psycopg2.connect(dbname='novsu_schedule', user='postgres',
                             password='debadmin', host='localhost')
     cur = conn.cursor()
     cur.execute(f'SELECT group_data FROM group_{group_student} WHERE week_day=\'{day_of_week}\' AND group_week_type={week_type=="Верхняя"}')
