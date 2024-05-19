@@ -1,5 +1,4 @@
 import pandas as pd
-
 import psycopg2
 import requests
 import telebot
@@ -24,7 +23,6 @@ day_of_week = None
 week_type = None
 college = None
 course = None
-
 user_context = {}
 group = []
 days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
@@ -56,8 +54,7 @@ def init_list_group(cur, soup):
     course = 1
     first_group_number = int(list_group_ptk[0]) // 1000
     for num_group in list_group_ptk:
-        num_group = int(num_group)
-        temp = num_group // 1000;
+        temp = int(num_group) // 1000;
         if (first_group_number != temp):
             course += 1
             first_group_number = temp
@@ -187,15 +184,15 @@ def init_db():
                 'DROP TABLE IF EXISTS groups_students_spour;'
                 'DROP TABLE IF EXISTS groups_students_spoinpo;'
                 'CREATE TABLE groups_students_ptk'
-                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);'
+                '(group_course SMALLINT NOT NULL, group_id VARCHAR(6) NOT NULL);'
                 'CREATE TABLE groups_students_pedcol' 
-                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);'
+                '(group_course SMALLINT NOT NULL, group_id VARCHAR(6) NOT NULL);'
                 'CREATE TABLE groups_students_medcol' 
-                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);'
+                '(group_course SMALLINT NOT NULL, group_id VARCHAR(6) NOT NULL);'
                 'CREATE TABLE groups_students_spour'
-                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);'
+                '(group_course SMALLINT NOT NULL, group_id VARCHAR(6) NOT NULL);'
                 'CREATE TABLE groups_students_spoinpo'
-                '(group_course SMALLINT NOT NULL, group_id SMALLINT NOT NULL);');
+                '(group_course SMALLINT NOT NULL, group_id VARCHAR(6) NOT NULL);');
     # Отправить HTTP-запрос на сайт и получить HTML-код страницы
     url = 'https://portal.novsu.ru/univer/timetable/spo/'
     response = requests.get(url)
@@ -209,10 +206,10 @@ def init_db():
     temp = cur.fetchall()
     group = []
     for item in temp:
-        group.append(str(item[0]))
+        group.append(item[0])
             
     for number_group in group:
-        link = soup.find('a', string="0" + str(number_group) if (int(number_group) < 1000) else number_group)  
+        link = soup.find('a', string=number_group)  
         if (link):
             link_href = link['href']
             file_url = f"https://portal.novsu.ru/{link_href}"
@@ -229,7 +226,7 @@ def init_db():
             conn.commit()
     cur.close()
     conn.close()
-         
+            
 @bot.message_handler(commands=['start'])
 def main_menu(message):
     markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -346,7 +343,7 @@ def bot_massage(message):
             current_context = user_context.get(message.chat.id)
             if current_context == 'ПТК':
                 markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-
+                
                 item_3781 = types.KeyboardButton('3781')
                 item_3782 = types.KeyboardButton('3782')
                 item_3791 = types.KeyboardButton('3791')
@@ -374,7 +371,6 @@ def bot_massage(message):
                 item_back = types.KeyboardButton('Главное меню')
                 global group_student
                 group_student = message.text
-
                 markup_replay.add(item_3781, item_3782, item_3791, item_3792,
                                   item_3911, item_3912, item_3913, item_3914,
                                   item_3921, item_3951, item_3952, item_3953,
@@ -423,7 +419,6 @@ def bot_massage(message):
                 item_2996 = types.KeyboardButton('2996')
                 item_back = types.KeyboardButton('Главное меню')
                 group_student = message.text
-
                 markup_replay.add(item_2781, item_2782, item_2791, item_2792,
                                   item_2911, item_2912, item_2913, item_2921,
                                   item_2951, item_2952, item_2953, item_2981,
@@ -442,9 +437,9 @@ def bot_massage(message):
                 item_back = types.KeyboardButton('Главное меню')
                 group_student = message.text
                 markup_replay.add(item_2861, item_2862, item_2863, item_2971, item_back)
-
                 bot.send_message(message.chat.id, 'Выберете свою группу.',
                                  reply_markup=markup_replay)
+
 
         elif message.text == '3 курс':
             current_context = user_context.get(message.chat.id)
@@ -462,7 +457,6 @@ def bot_massage(message):
                 item_1994 = types.KeyboardButton('1994')
                 item_back = types.KeyboardButton('Главное меню')
                 group_student = message.text
-
                 markup_replay.add(item_1791, item_1792, item_1911, item_1921,
                                   item_1951, item_1952, item_1981, item_1991,
                                   item_1992, item_1994, item_back)
@@ -479,6 +473,7 @@ def bot_massage(message):
                 markup_replay.add(item_1861, item_1862, item_1971, item_back)
                 bot.send_message(message.chat.id, '📝Выберете свою группу.',
                                  reply_markup=markup_replay)
+
 
         elif message.text == '4 курс':
             current_context = user_context.get(message.chat.id)
@@ -519,7 +514,7 @@ def bot_massage(message):
             item_back = types.KeyboardButton('Главное меню')
             markup_replay.add(item_back)
             bot.send_message(message.chat.id, 'В разработке.',
-                             reply_markup=markup_replay)1
+                             reply_markup=markup_replay)
 
         elif message.text == 'СПО ИЦЭУС':
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -553,6 +548,7 @@ def bot_massage(message):
 
 
         elif message.text.isdigit():
+            
             if message.text in group:
                 group_student = message.text
                 markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -576,7 +572,6 @@ def bot_massage(message):
             item_back = types.KeyboardButton('Главное меню')
             global week_type
             week_type = message.text
-
             markup_replay.add(item_pn, item_vt, item_sr, item_ch,
                               item_pt, item_sb, item_back)
             bot.send_message(message.chat.id, '📅 Выберите день недели',
@@ -615,7 +610,6 @@ def bot_massage(message):
             markup_replay.add(item_back)
             bot.send_message(message.chat.id, '⚠️Извините, я вас не понимаю.\nСледуйте кнопкам меню!⚠️',
                              reply_markup=markup_replay)
-
 
 
 def remove_lek_from_info(info):
