@@ -129,7 +129,7 @@ def init_schedule_ptk(group_student, day_of_week, content):
             if len(info.split(', ')) == 3:
                 subject, teacher, audience = info.split(', ')
                 schedule.append(
-                    f' ⏰Время: {time} \n 📚Предмет: {subject} \n👨‍🏫Преподаватель: {teacher} \n 📝Аудитория: {audience}\n\n')
+                    f' ⏰Время: {time} \n 📚Предмет: {subject} \n 👨‍🏫Преподаватель: {teacher} \n 📝Аудитория: {audience}\n\n')
             # Предмет по группам:
             elif len(info.split(', ')) == 5:
                 subject, teacher1, audience1, teacher2, audience2 = info.split(', ')
