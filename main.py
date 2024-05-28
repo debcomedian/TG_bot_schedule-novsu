@@ -43,13 +43,18 @@ def init_list_group(cur, soup):
             if '_' not in element.get_text():
                 list_group_ptk.append(element.get_text())
         elif substring_pedcol in str(element):
-            list_group_pedcol.append(element.get_text())
+            if '_' not in element.get_text():
+                list_group_pedcol.append(element.get_text())
         elif substring_medcol in str(element):
-            list_group_medcol.append(element.get_text())
+            if '_' not in element.get_text():
+                list_group_medcol.append(element.get_text())
         elif substring_spour in str(element):
-            list_group_spour.append(element.get_text())
+            if '_' not in element.get_text():
+                list_group_spour.append(element.get_text())
         elif substring_spoinpo in str(element):
-            list_group_spoinpo.append(element.get_text())
+            if '_' and 'o' not in element.get_text():
+                print(element.get_text())
+                list_group_spoinpo.append(element.get_text())
             
     course = 1
     first_group_number = int(list_group_ptk[0]) // 1000
@@ -59,6 +64,34 @@ def init_list_group(cur, soup):
             course += 1
             first_group_number = temp
         cur.execute('INSERT INTO groups_students_ptk VALUES (%s, %s)', (course, num_group))
+    course = 0
+    for num_group in list_group_pedcol:
+        temp = int(num_group) // 1000;
+        if (first_group_number != temp):
+            course += 1
+            first_group_number = temp
+        cur.execute('INSERT INTO groups_students_pedcol VALUES (%s, %s)', (course, num_group))
+    course = 0
+    for num_group in list_group_medcol:
+        temp = int(num_group) // 1000;
+        if (first_group_number != temp):
+            course += 1
+            first_group_number = temp
+        cur.execute('INSERT INTO groups_students_medcol VALUES (%s, %s)', (course, num_group))
+    course = 0
+    for num_group in list_group_spour:
+        temp = int(num_group) // 1000;
+        if (first_group_number != temp):
+            course += 1
+            first_group_number = temp
+        cur.execute('INSERT INTO groups_students_spour VALUES (%s, %s)', (course, num_group))
+    course = 0
+    for num_group in list_group_spoinpo:
+        temp = int(num_group) // 1000;
+        if (first_group_number != temp):
+            course += 1
+            first_group_number = temp
+        cur.execute('INSERT INTO groups_students_spoinpo VALUES (%s, %s)', (course, num_group))
 
 def init_find_distance(group_student, day_of_week, df):
     #Найти индекс столбца, содержащего дни недели
@@ -201,10 +234,26 @@ def init_db():
     soup = BS(html, 'html.parser')
     init_list_group(cur, soup)
     conn.commit()
-    
+
+    group = []
     cur.execute('SELECT group_id FROM groups_students_ptk')
     temp = cur.fetchall()
-    group = []
+    for item in temp:
+        group.append(item[0])
+    cur.execute('SELECT group_id FROM groups_students_pedcol')
+    temp = cur.fetchall()
+    for item in temp:
+        group.append(item[0])
+    cur.execute('SELECT group_id FROM groups_students_medcol')
+    temp = cur.fetchall()
+    for item in temp:
+        group.append(item[0])
+    cur.execute('SELECT group_id FROM groups_students_spour')
+    temp = cur.fetchall()
+    for item in temp:
+        group.append(item[0])
+    cur.execute('SELECT group_id FROM groups_students_spoinpo')
+    temp = cur.fetchall()
     for item in temp:
         group.append(item[0])
             
