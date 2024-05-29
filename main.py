@@ -37,7 +37,8 @@ def init_list_group(first_group_number, table_name, list_group):
         if (first_group_number != temp):
             course += 1
             first_group_number = temp
-        cur.execute("INSERT INTO {} VALUES (%s, %s)".format(table_name), (course, num_group))
+        cur.execute("INSERT INTO {} VALUES (%s, %s)".format(table_name),
+                    (course, num_group))
 
 def init_list_groups(soup):
     substring_ptk = "/npe/files/_timetable/ptk/"
@@ -48,6 +49,7 @@ def init_list_groups(soup):
     
     list_group_ptk, list_group_pedcol, list_group_medcol = [], [], []
     list_group_spour, list_group_spoinpo = [], []
+    
     list_groups = soup.find_all('a')
     for element in list_groups:  
         if substring_ptk in str(element) and '_' not in element.get_text(): 
@@ -61,7 +63,6 @@ def init_list_groups(soup):
         elif substring_spoinpo in str(element) and ('_' and 'o' not in element.get_text()):
             list_group_spoinpo.append(element.get_text())
             
-    course = 1
     first_group_number = int(list_group_ptk[0]) // 1000
     init_list_group(first_group_number, 'groups_students_ptk', list_group_ptk)
     init_list_group(first_group_number, 'groups_students_pedcol', list_group_pedcol)
@@ -179,7 +180,14 @@ def init_send_schedule(schedule, number_group, day, week_type):
         elif week_type == 'Нижняя':
             if ' - только по верхней неделе' in elem:
                 del schedule[i]
-    cur.execute(f'INSERT INTO group_{number_group} VALUES (%s, %s, %s)', (day, week_type == "Верхняя", ''.join(schedule)))
+    cur.execute(f'INSERT INTO group_{number_group} VALUES (%s, %s, %s)',
+                (day, week_type == "Верхняя", ''.join(schedule)))
+
+def init_get_list_group(college):
+    cur.execute('SELECT group_id FROM {}'.format(college))
+    temp = cur.fetchall()
+    for item in temp:
+        group.append(item[0])
 
 def init_db():
     global group
@@ -198,7 +206,7 @@ def init_db():
                 '(group_course SMALLINT NOT NULL, group_id VARCHAR(6) NOT NULL);'
                 'CREATE TABLE groups_students_spoinpo'
                 '(group_course SMALLINT NOT NULL, group_id VARCHAR(6) NOT NULL);');
-    # Отправить HTTP-запрос на сайт и получить HTML-код страницы
+    
     url = 'https://portal.novsu.ru/univer/timetable/spo/'
     response = requests.get(url)
     html = response.text
@@ -207,15 +215,16 @@ def init_db():
     init_list_groups(soup)
     conn.commit()
 
-    group = []
-    cur.execute('SELECT group_id FROM groups_students_ptk')
+    init_get_list_group('groups_students_ptk')
+    init_get_list_group('groups_students_pedcol')
+    init_get_list_group('groups_students_medcol')
+    init_get_list_group('groups_students_spour')
+    init_get_list_group('groups_students_spoinpo')
+    
+    cur.execute('SELECT group_id FROM groups_students_pedcol')
     temp = cur.fetchall()
     for item in temp:
         group.append(item[0])
-    # cur.execute('SELECT group_id FROM groups_students_pedcol')
-    # temp = cur.fetchall()
-    # for item in temp:
-    #    group.append(item[0])
     # cur.execute('SELECT group_id FROM groups_students_medcol')
     # temp = cur.fetchall()
     # for item in temp:
@@ -256,11 +265,10 @@ def main_menu(message):
                      reply_markup=markup_replay)
 
 
-def show_groups(message, table_name):
+def show_groups(message, college):
     markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    global group_student
     group_student = message.text
-    cur.execute("SELECT group_id FROM {} WHERE group_course=%s".format(table_name), group_student[0])
+    cur.execute("SELECT group_id FROM {} WHERE group_course=%s".format(college), group_student[0])
     temp = cur.fetchall()
     temp_items = []
     for item in temp:
@@ -272,7 +280,7 @@ def show_groups(message, table_name):
 
 @bot.message_handler(content_types=['text'])
 def bot_massage(message):
-    global group
+    global group, group_student
     if message.chat.type == 'private':
         if 'Узнать геопозицию' in message.text:
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -378,16 +386,7 @@ def bot_massage(message):
                 show_groups(message, 'groups_students_ptk')
 
             elif current_context == 'СПО ИНПО':
-                markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-                item_3861 = types.KeyboardButton('3861')
-                item_3971 = types.KeyboardButton('3971')
-                item_3972 = types.KeyboardButton('3972')
-                item_3973 = types.KeyboardButton('3973')
-                item_back = types.KeyboardButton('Главное меню')
-                group_student = message.text
-                markup_replay.add(item_3861, item_3971, item_3972, item_3973, item_back)
-                bot.send_message(message.chat.id, '📝Выберите свою группу',
-                                 reply_markup=markup_replay)
+                show_groups(message, 'groups_students_spoinpo')
 
         elif message.text == '2 курс':
             current_context = user_context.get(message.chat.id)
@@ -395,16 +394,7 @@ def bot_massage(message):
                 show_groups(message, 'groups_students_ptk')
                 
             elif current_context == 'СПО ИНПО':
-                markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-                item_2861 = types.KeyboardButton('2861')
-                item_2862 = types.KeyboardButton('2862')
-                item_2863 = types.KeyboardButton('2863')
-                item_2971 = types.KeyboardButton('2971')
-                item_back = types.KeyboardButton('Главное меню')
-                group_student = message.text
-                markup_replay.add(item_2861, item_2862, item_2863, item_2971, item_back)
-                bot.send_message(message.chat.id, 'Выберете свою группу.',
-                                 reply_markup=markup_replay)
+                show_groups(message, 'groups_students_spoinpo')
 
 
         elif message.text == '3 курс':
@@ -413,15 +403,7 @@ def bot_massage(message):
                 show_groups(message, 'groups_students_ptk')
 
             elif current_context == 'СПО ИНПО':
-                markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-                item_1861 = types.KeyboardButton('2861')
-                item_1862 = types.KeyboardButton('2862')
-                item_1971 = types.KeyboardButton('2971')
-                item_back = types.KeyboardButton('Главное меню')
-                group_student = message.text
-                markup_replay.add(item_1861, item_1862, item_1971, item_back)
-                bot.send_message(message.chat.id, '📝Выберете свою группу.',
-                                 reply_markup=markup_replay)
+                show_groups(message, 'groups_students_spoinpo')
 
 
         elif message.text == '4 курс':
@@ -430,13 +412,7 @@ def bot_massage(message):
                 show_groups(message, 'groups_students_ptk')
 
             elif current_context == 'СПО ИНПО':
-                markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-                item_0861 = types.KeyboardButton('0861')
-                item_back = types.KeyboardButton('Главное меню')
-                group_student = message.text
-                markup_replay.add(item_0861, item_back)
-                bot.send_message(message.chat.id, 'Выберете свою группу.',
-                                 reply_markup=markup_replay)
+                show_groups(message, 'groups_students_spoinpo')
 
 
         elif message.text == 'Мед.колледж':
@@ -480,7 +456,6 @@ def bot_massage(message):
             bot.send_message(message.chat.id, 'Главное меню',
                              reply_markup=markup_replay)
 
-
         elif message.text.isdigit():
             
             if message.text in group:
@@ -497,32 +472,16 @@ def bot_massage(message):
 
         elif message.text == 'Верхняя':
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            item_pn = types.KeyboardButton('Пн')
-            item_vt = types.KeyboardButton('Вт')
-            item_sr = types.KeyboardButton('Ср')
-            item_ch = types.KeyboardButton('Чт')
-            item_pt = types.KeyboardButton('Пт')
-            item_sb = types.KeyboardButton('Сб')
-            item_back = types.KeyboardButton('Главное меню')
             global week_type
             week_type = message.text
-            markup_replay.add(item_pn, item_vt, item_sr, item_ch,
-                              item_pt, item_sb, item_back)
+            markup_replay.add(*days, types.KeyboardButton('Главное меню'))
             bot.send_message(message.chat.id, '📅 Выберите день недели',
                              reply_markup=markup_replay)
 
         elif message.text == 'Нижняя':
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            item_pn = types.KeyboardButton('Пн')
-            item_vt = types.KeyboardButton('Вт')
-            item_sr = types.KeyboardButton('Ср')
-            item_ch = types.KeyboardButton('Чт')
-            item_pt = types.KeyboardButton('Пт')
-            item_sb = types.KeyboardButton('Сб')
             week_type = message.text
-            item_back = types.KeyboardButton('Главное меню')
-            markup_replay.add(item_pn, item_vt, item_sr, item_ch,
-                              item_pt, item_sb, item_back)
+            markup_replay.add(*days, types.KeyboardButton('Главное меню'))
             bot.send_message(message.chat.id, '📅 Выберите день недели',
                              reply_markup=markup_replay)
 
@@ -772,5 +731,5 @@ def get_schedule_inpo(group_number_ptk, day_of_week_ptk, week_type):
         print(auditors)
 
 if __name__ == '__main__':
-    #init_db()
+    init_db()
     bot.polling()
