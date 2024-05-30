@@ -65,9 +65,9 @@ def init_list_groups(soup):
             
     first_group_number = int(list_group_ptk[0]) // 1000
     init_list_group(first_group_number, 'groups_students_ptk', list_group_ptk)
-    init_list_group(first_group_number, 'groups_students_pedcol', list_group_pedcol)
-    init_list_group(first_group_number, 'groups_students_medcol', list_group_medcol)
-    init_list_group(first_group_number, 'groups_students_spour', list_group_spour)
+    #init_list_group(first_group_number, 'groups_students_pedcol', list_group_pedcol)
+    #init_list_group(first_group_number, 'groups_students_medcol', list_group_medcol)
+    #init_list_group(first_group_number, 'groups_students_spour', list_group_spour)
     init_list_group(first_group_number, 'groups_students_spoinpo', list_group_spoinpo)
 
 def init_find_distance(group_student, day_of_week, df):
@@ -370,7 +370,7 @@ def bot_massage(message):
             user_context[message.chat.id] = 'СПО ИНПО'
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
             item_1 = types.KeyboardButton('1 курс')
-            item_2 = types.KeyboardButton('2 курс')
+            item_2 = types.KeyboardButton('2 курс') 
             item_3 = types.KeyboardButton('3 курс')
             item_4 = types.KeyboardButton('4 курс')
             item_back = types.KeyboardButton('Главное меню')
