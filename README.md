@@ -8,7 +8,7 @@
 
 Для установки сторонних библотек: 
 ```
-pip install -r requirements.txt
+pip install -r install/requirements.txt
 ```
 
 ### 2. Необходима база данных PostgreSQL
