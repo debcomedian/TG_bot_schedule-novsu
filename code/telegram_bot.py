@@ -9,7 +9,7 @@ import requests
 bot = telebot.TeleBot(get_telegram_token())
 
 days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
-days_full = ['ПОНЕДЕЛЬНИК', 'ВТОРНИК', 'СРЕДА', 'ЧЕТВЕРГ', 'ПЯТНИЦА', 'СУББОТА']
+
 user_context = {}
 group = []
 
@@ -41,7 +41,7 @@ def init_list_groups(soup, cur):
     list_group_spour, list_group_spoinpo = [], []
     
     list_groups = soup.find_all('a')
-    for element in list_groups:  
+    for element in list_groups:
         if substring_ptk in str(element) and '_' not in element.get_text(): 
             list_group_ptk.append(element.get_text())
         elif substring_pedcol in str(element) and '_' not in element.get_text():
@@ -65,65 +65,6 @@ def init_get_list_group(college, cur):
     temp = cur.fetchall()
     for item in temp:
         group.append(item[0])
-
-def main():
-    global cur
-    
-    init_db()
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    url = 'https://portal.novsu.ru/univer/timetable/spo/'
-    response = requests.get(url)
-    html = response.text
-
-    soup = BS(html, 'html.parser')
-    init_list_groups(soup, cur)
-    conn.commit()
-
-    init_get_list_group('groups_students_ptk', cur)
-    init_get_list_group('groups_students_pedcol', cur)
-    init_get_list_group('groups_students_medcol', cur)
-    init_get_list_group('groups_students_spour', cur)
-    init_get_list_group('groups_students_spoinpo', cur)
-    
-    cur.execute('SELECT group_id FROM groups_students_pedcol')
-    temp = cur.fetchall()
-    for item in temp:
-        group.append(item[0])
-    # cur.execute('SELECT group_id FROM groups_students_medcol')
-    # temp = cur.fetchall()
-    # for item in temp:
-    #    group.append(item[0])
-    # cur.execute('SELECT group_id FROM groups_students_spour')
-    # temp = cur.fetchall()
-    # for item in temp:
-    #     group.append(item[0])
-    # cur.execute('SELECT group_id FROM groups_students_spoinpo')
-    # temp = cur.fetchall()
-    #    group.append(item[0])
-            
-    for number_group in group:
-        link = soup.find('a', string=number_group)  
-        if (link):
-            link_href = link['href']
-            file_url = f"https://portal.novsu.ru/{link_href}"
-            response = requests.get(file_url)
-            print(number_group)
-            cur.execute(f'DROP TABLE IF EXISTS group_{number_group}');
-            cur.execute(f'CREATE TABLE group_{number_group}(week_day VARCHAR(2) NOT NULL,'
-                         'group_week_type BOOLEAN NOT NULL, group_data VARCHAR(1024) NOT NULL)')
-            for day in days:
-                schedule = init_schedule_ptk(number_group, day, response.content)
-                if schedule != []:
-                    init_send_schedule(schedule, number_group, day, "Верхняя", cur)
-                    init_send_schedule(schedule, number_group, day, "Нижняя", cur)
-            conn.commit()
-    
-    bot.polling()
-    cur.close()
-    conn.close()
-
 
 @bot.message_handler(commands=['start'])
 def main_menu(message):
@@ -373,6 +314,61 @@ def bot_massage(message):
             markup_replay.add(item_back)
             bot.send_message(message.chat.id, '⚠️Извините, я вас не понимаю.\nСледуйте кнопкам меню!⚠️',
                              reply_markup=markup_replay)
+
+def fetch_group_ids(cur, table_name, group_list):
+    cur.execute(f'SELECT group_id FROM {table_name}')
+    
+    temp = cur.fetchall()
+    for item in temp:
+        group_list.append(item[0])
+
+def main():
+    global cur
+    
+    init_db()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    url = 'https://portal.novsu.ru/univer/timetable/spo/'
+    response = requests.get(url)
+    html = response.text
+
+    soup = BS(html, 'html.parser')
+    init_list_groups(soup, cur)
+    conn.commit()
+
+    init_get_list_group('groups_students_ptk', cur)
+    init_get_list_group('groups_students_pedcol', cur)
+    init_get_list_group('groups_students_medcol', cur)
+    init_get_list_group('groups_students_spour', cur)
+    init_get_list_group('groups_students_spoinpo', cur)
+    
+    # fetch_group_ids(cur, 'groups_students_pedcol', group)
+    # fetch_group_ids(cur, 'groups_students_medcol', group)
+    # fetch_group_ids(cur, 'groups_students_spour', group)
+    # fetch_group_ids(cur, 'groups_students_spoinpo', group)
+       
+            
+    for number_group in group:
+        link = soup.find('a', string=number_group)  
+        if (link):
+            link_href = link['href']
+            file_url = f"https://portal.novsu.ru/{link_href}"
+            response = requests.get(file_url)
+            print(number_group)
+            cur.execute(f'DROP TABLE IF EXISTS group_{number_group}');
+            cur.execute(f'CREATE TABLE group_{number_group}(week_day VARCHAR(2) NOT NULL,'
+                         'group_week_type BOOLEAN NOT NULL, group_data VARCHAR(1024) NOT NULL)')
+            for day in days:
+                schedule = init_schedule_ptk(number_group, day, response.content)
+                if schedule != []:
+                    init_send_schedule(schedule, number_group, day, "Верхняя", cur)
+                    init_send_schedule(schedule, number_group, day, "Нижняя", cur)
+            conn.commit()
+    
+    bot.polling()
+    cur.close()
+    conn.close()
 
 if __name__ == '__main__':
     main()

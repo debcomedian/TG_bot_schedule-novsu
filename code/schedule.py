@@ -2,9 +2,7 @@ import pandas as pd
 import tempfile
 from code.db import get_db_connection
 
-# days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
 days_full = ['ПОНЕДЕЛЬНИК', 'ВТОРНИК', 'СРЕДА', 'ЧЕТВЕРГ', 'ПЯТНИЦА', 'СУББОТА']
-
 
 def init_get_df(content):
     with tempfile.NamedTemporaryFile(delete=True) as tmp_file:
