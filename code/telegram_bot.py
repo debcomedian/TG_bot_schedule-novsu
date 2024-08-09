@@ -1,7 +1,7 @@
 import telebot
 from telebot import types
 from code.config import get_telegram_token
-from code.db import get_db_connection, init_db
+from code.db import get_db_connection, rebuild_db
 from code.schedule import init_schedule_ptk, get_schedule_ptk, init_send_schedule
 from bs4 import BeautifulSoup as BS
 import requests
@@ -91,7 +91,8 @@ def show_groups(message, college):
 
 @bot.message_handler(content_types=['text'])
 def bot_massage(message):
-    global group, group_student
+    global group, group_student, week_type, college, course
+    
     if message.chat.type == 'private':
         if 'Узнать геопозицию' in message.text:
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -109,46 +110,32 @@ def bot_massage(message):
                              reply_markup=markup_replay)
 
         elif message.text == 'Главный корпус':
-            latitude = 58.542306
-            longitude = 31.261174
-            bot.send_location(message.chat.id, latitude, longitude)
-            bot.send_message(message.chat.id, '📍Местоположение Главного корпуса: Большая Санкт-Петербургская, 41')
+            bot_send_location_and_message(bot, message, 58.542306, 31.261174, 
+                                          '📍Местоположение Главного корпуса: Большая Санкт-Петербургская, 41')
 
         elif message.text == 'Политехнический колледж':
-            latitude = 58.541668
-            longitude = 31.264534
-            bot.send_location(message.chat.id, latitude, longitude)
-            bot.send_message(message.chat.id, '📍Местоположение ПТК: Большая Санкт-Петербургская, 46')
+            bot_send_location_and_message(bot, message, 58.541668, 31.264534, 
+                                         '📍Местоположение ПТК: Большая Санкт-Петербургская, 46')
 
         elif message.text == 'Антоново':
-            latitude = 58.541079
-            longitude = 31.288108
-            bot.send_location(message.chat.id, latitude, longitude)
-            bot.send_message(message.chat.id, '📍Местоположение ИГУМ: район Антоново, 1')
+            bot_send_location_and_message(bot, message, 58.541079, 31.288108, 
+                                          '📍Местоположение ИГУМ: район Антоново, 1')
 
         elif message.text == 'ИЦЭУС':
-            latitude = 58.522347
-            longitude = 31.258228
-            bot.send_location(message.chat.id, latitude, longitude)
-            bot.send_message(message.chat.id, '📍Местоположение ИЦЭУС: Псковская улица, 3')
+            bot_send_location_and_message(bot, message, 58.522347, 31.258228, 
+                                          '📍Местоположение ИЦЭУС: Псковская улица, 3')
 
         elif message.text == 'ИМО':
-            latitude = 58.542809
-            longitude = 31.310567
-            bot.send_location(message.chat.id, latitude, longitude)
-            bot.send_message(message.chat.id, '📍Местоположение ИМО: улица Державина, 6')
+            bot_send_location_and_message(bot, message, 58.542809, 31.310567, 
+                                          '📍Местоположение ИМО: улица Державина, 6')
 
         elif message.text == 'ИБХИ':
-            latitude = 58.551745
-            longitude = 31.300628
-            bot.send_location(message.chat.id, latitude, longitude)
-            bot.send_message(message.chat.id, '📍Местоположение ИБХИ: улица Советской Армии, 7')
+            bot_send_location_and_message(bot, message, 58.551745, 31.300628, 
+                                          '📍Местоположение ИБХИ: улица Советской Армии, 7')
 
         elif message.text == 'ПИ':
-            latitude = 58.523945
-            longitude = 31.262243
-            bot.send_location(message.chat.id, latitude, longitude)
-            bot.send_message(message.chat.id, '📍Местоположение ПИ: улица Черняховского, 64/6')
+            bot_send_location_and_message(bot, message, 58.523945, 31.262243, 
+                                          '📍Местоположение ПИ: улица Черняховского, 64/6')
 
         elif message.text == 'Узнать расписание':
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -163,32 +150,17 @@ def bot_massage(message):
                              reply_markup=markup_replay)
 
         elif message.text == 'ПТК':
-            user_context[message.chat.id] = 'ПТК'
-            markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            item_1 = types.KeyboardButton('1 курс')
-            item_2 = types.KeyboardButton('2 курс')
-            item_3 = types.KeyboardButton('3 курс')
-            item_4 = types.KeyboardButton('4 курс')
-            item_back = types.KeyboardButton('Главное меню')
-            global college
             college = message.text
-            global course
-            course = message.text
-            markup_replay.add(item_1, item_2, item_3, item_4, item_back)
+            print('college = ' + college)
+            user_context[message.chat.id] = message.text
+            markup_replay = generate_course_menu('ptk')
             bot.send_message(message.chat.id, '❓ Какой вы курс?', reply_markup=markup_replay)
 
         elif message.text == 'СПО ИНПО':
-            user_context[message.chat.id] = 'СПО ИНПО'
-            markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            item_1 = types.KeyboardButton('1 курс')
-            item_2 = types.KeyboardButton('2 курс') 
-            item_3 = types.KeyboardButton('3 курс')
-            item_4 = types.KeyboardButton('4 курс')
-            item_back = types.KeyboardButton('Главное меню')
-
             college = message.text
-            course = message.text
-            markup_replay.add(item_1, item_2, item_3, item_4, item_back)
+            print('college = ' + college)
+            user_context[message.chat.id] = message.text
+            markup_replay = generate_course_menu('spoinpo')
             bot.send_message(message.chat.id, '❓ Какой вы курс?', reply_markup=markup_replay)
 
         elif message.text == '1 курс':
@@ -279,11 +251,10 @@ def bot_massage(message):
                 bot.send_message(message.chat.id, '❗️ Выберите неделю',
                                  reply_markup=markup_replay)
             else:
-                bot.send_message(message.chat.id, 'Такой группы несуществует!')
+                bot.send_message(message.chat.id, 'Такой группы не существует!')
 
         elif message.text == 'Верхняя':
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            global week_type
             week_type = message.text
             markup_replay.add(*days, types.KeyboardButton('Главное меню'))
             bot.send_message(message.chat.id, '📅 Выберите день недели',
@@ -315,17 +286,40 @@ def bot_massage(message):
             bot.send_message(message.chat.id, '⚠️Извините, я вас не понимаю.\nСледуйте кнопкам меню!⚠️',
                              reply_markup=markup_replay)
 
+def bot_send_location_and_message(bot, message, latitude, longitude, str):
+    bot.send_location(message.chat.id, latitude, longitude)
+    bot.send_message(message.chat.id, str)
+
 def fetch_group_ids(cur, table_name, group_list):
     cur.execute(f'SELECT group_id FROM {table_name}')
     
     temp = cur.fetchall()
     for item in temp:
         group_list.append(item[0])
+    
+def fetch_college_courses(cur, table_college_name):
+    course_list = []
+    cur.execute(f'SELECT DISTINCT group_course FROM groups_students_{table_college_name}')
+    temp = cur.fetchall()
+    for item in temp:
+        course_list.append(item[0])
+    return course_list
 
+def generate_course_menu(college):
+    markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    course_list = sorted(fetch_college_courses(cur, college))
+    
+    for course in course_list:
+        markup_replay.add(types.KeyboardButton(f'{course} курс'))
+    
+    item_back = types.KeyboardButton('Главное меню')
+    markup_replay.add(item_back)
+    return markup_replay
+    
 def main():
     global cur
     
-    init_db()
+    rebuild_db()
     conn = get_db_connection()
     cur = conn.cursor()
     
