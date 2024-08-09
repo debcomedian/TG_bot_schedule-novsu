@@ -54,10 +54,12 @@ def init_list_groups(soup, cur):
             list_group_spoinpo.append(element.get_text())
             
     first_group_number = int(list_group_ptk[0]) // 1000
+    while first_group_number > 9:
+        first_group_number %= 10
     init_list_group(first_group_number, 'groups_students_ptk', list_group_ptk, cur)
-    #init_list_group(first_group_number, 'groups_students_pedcol', list_group_pedcol, cur)
-    #init_list_group(first_group_number, 'groups_students_medcol', list_group_medcol, cur)
-    #init_list_group(first_group_number, 'groups_students_spour', list_group_spour, cur)
+    init_list_group(first_group_number, 'groups_students_pedcol', list_group_pedcol, cur)
+    init_list_group(first_group_number, 'groups_students_medcol', list_group_medcol, cur)
+    init_list_group(first_group_number, 'groups_students_spour', list_group_spour, cur)
     init_list_group(first_group_number, 'groups_students_spoinpo', list_group_spoinpo, cur)
 
 def init_get_list_group(college, cur):
@@ -163,6 +165,32 @@ def bot_massage(message):
             markup_replay = generate_course_menu('spoinpo')
             bot.send_message(message.chat.id, '❓ Какой вы курс?', reply_markup=markup_replay)
 
+        elif message.text == 'Мед.колледж':
+            # markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            # item_back = types.KeyboardButton('Главное меню')
+            # markup_replay.add(item_back)
+            # bot.send_message(message.chat.id, 'В разработке.',
+            #                  reply_markup=markup_replay)
+            college = message.text
+            print('college = ' + college)
+            user_context[message.chat.id] = message.text
+            markup_replay = generate_course_menu('medcol')
+            bot.send_message(message.chat.id, '❓ Какой вы курс?', reply_markup=markup_replay)
+            
+        elif message.text == 'СПО ИЦЭУС':
+            college = message.text
+            print('college = ' + college)
+            user_context[message.chat.id] = message.text
+            markup_replay = generate_course_menu('pedcol')
+            bot.send_message(message.chat.id, '❓ Какой вы курс?', reply_markup=markup_replay)
+
+        elif message.text == 'СПО ИЮР':
+            college = message.text
+            print('college = ' + college)
+            user_context[message.chat.id] = message.text
+            markup_replay = generate_course_menu('spour')
+            bot.send_message(message.chat.id, '❓ Какой вы курс?', reply_markup=markup_replay)
+        
         elif message.text == '1 курс':
             current_context = user_context.get(message.chat.id)
             if current_context == 'ПТК':
@@ -179,7 +207,6 @@ def bot_massage(message):
             elif current_context == 'СПО ИНПО':
                 show_groups(message, 'groups_students_spoinpo')
 
-
         elif message.text == '3 курс':
             current_context = user_context.get(message.chat.id)
             if current_context == 'ПТК':
@@ -188,7 +215,6 @@ def bot_massage(message):
             elif current_context == 'СПО ИНПО':
                 show_groups(message, 'groups_students_spoinpo')
 
-
         elif message.text == '4 курс':
             current_context = user_context.get(message.chat.id)
             if current_context == 'ПТК':
@@ -196,40 +222,22 @@ def bot_massage(message):
 
             elif current_context == 'СПО ИНПО':
                 show_groups(message, 'groups_students_spoinpo')
+                
+        elif message.text == '5 курс':
+            current_context = user_context.get(message.chat.id)
+            if current_context == 'ПТК':
+                show_groups(message, 'groups_students_ptk')
 
+            elif current_context == 'СПО ИНПО':
+                show_groups(message, 'groups_students_spoinpo')
+                
+        elif message.text == '6 курс':
+            current_context = user_context.get(message.chat.id)
+            if current_context == 'ПТК':
+                show_groups(message, 'groups_students_ptk')
 
-        elif message.text == 'Мед.колледж':
-            markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            '''item_1 = types.KeyboardButton('1 курс')
-            item_2 = types.KeyboardButton('2 курс')
-            item_3 = types.KeyboardButton('3 курс')
-            item_4 = types.KeyboardButton('4 курс')'''
-            item_back = types.KeyboardButton('Главное меню')
-            markup_replay.add(item_back)
-            bot.send_message(message.chat.id, 'В разработке.',
-                             reply_markup=markup_replay)
-
-        elif message.text == 'СПО ИЦЭУС':
-            markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            '''item_1 = types.KeyboardButton('1 курс')
-            item_2 = types.KeyboardButton('2 курс')
-            item_3 = types.KeyboardButton('3 курс')
-            item_4 = types.KeyboardButton('4 курс')'''
-            item_back = types.KeyboardButton('Главное меню')
-            markup_replay.add(item_back)
-            bot.send_message(message.chat.id, 'В разработке.',
-                             reply_markup=markup_replay)
-
-        elif message.text == 'СПО ИЮР':
-            markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            '''item_1 = types.KeyboardButton('1 курс')
-            item_2 = types.KeyboardButton('2 курс')
-            item_3 = types.KeyboardButton('3 курс')
-            item_4 = types.KeyboardButton('4 курс')'''
-            item_back = types.KeyboardButton('Главное меню')
-            markup_replay.add(item_back)
-            bot.send_message(message.chat.id, 'В разработке.',
-                             reply_markup=markup_replay)
+            elif current_context == 'СПО ИНПО':
+                show_groups(message, 'groups_students_spoinpo')
 
         elif message.text == 'Главное меню':
             markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -315,34 +323,8 @@ def generate_course_menu(college):
     item_back = types.KeyboardButton('Главное меню')
     markup_replay.add(item_back)
     return markup_replay
-    
-def main():
-    global cur
-    
-    rebuild_db()
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    url = 'https://portal.novsu.ru/univer/timetable/spo/'
-    response = requests.get(url)
-    html = response.text
 
-    soup = BS(html, 'html.parser')
-    init_list_groups(soup, cur)
-    conn.commit()
-
-    init_get_list_group('groups_students_ptk', cur)
-    init_get_list_group('groups_students_pedcol', cur)
-    init_get_list_group('groups_students_medcol', cur)
-    init_get_list_group('groups_students_spour', cur)
-    init_get_list_group('groups_students_spoinpo', cur)
-    
-    # fetch_group_ids(cur, 'groups_students_pedcol', group)
-    # fetch_group_ids(cur, 'groups_students_medcol', group)
-    # fetch_group_ids(cur, 'groups_students_spour', group)
-    # fetch_group_ids(cur, 'groups_students_spoinpo', group)
-       
-            
+def init_schedule(soup, conn):
     for number_group in group:
         link = soup.find('a', string=number_group)  
         if (link):
@@ -359,6 +341,34 @@ def main():
                     init_send_schedule(schedule, number_group, day, "Верхняя", cur)
                     init_send_schedule(schedule, number_group, day, "Нижняя", cur)
             conn.commit()
+    
+def main():
+    global cur
+    
+    #rebuild_db()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    url = 'https://portal.novsu.ru/univer/timetable/spo/'
+    response = requests.get(url)
+    html = response.text
+
+    soup = BS(html, 'html.parser')
+    #init_list_groups(soup, cur)
+    conn.commit()
+
+    init_get_list_group('groups_students_ptk', cur)
+    init_get_list_group('groups_students_pedcol', cur)
+    init_get_list_group('groups_students_medcol', cur)
+    init_get_list_group('groups_students_spour', cur)
+    init_get_list_group('groups_students_spoinpo', cur)
+    
+    fetch_group_ids(cur, 'groups_students_pedcol', group)
+    fetch_group_ids(cur, 'groups_students_medcol', group)
+    fetch_group_ids(cur, 'groups_students_spour', group)
+    fetch_group_ids(cur, 'groups_students_spoinpo', group)
+       
+    #init_schedule(soup, conn)
     
     bot.polling()
     cur.close()
