@@ -10,7 +10,7 @@ def get_db_connection():
         host=db_config['host']
     )
 
-def init_db():
+def rebuild_db():
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute('DO $$ '
