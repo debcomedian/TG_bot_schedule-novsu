@@ -1,6 +1,6 @@
 import pandas as pd
 import tempfile
-from code.db import get_db_connection
+from code.db import Database
 
 days_full = ['ПОНЕДЕЛЬНИК', 'ВТОРНИК', 'СРЕДА', 'ЧЕТВЕРГ', 'ПЯТНИЦА', 'СУББОТА']
 
@@ -107,7 +107,7 @@ def remove_lek_from_info(info):
             return ', '.join(parts[:3])
     return info
 
-def init_send_schedule(schedule, number_group, day, week_type, cur):
+def init_send_schedule(schedule, number_group, day, week_type):
     for i, elem in enumerate(schedule):
         if ' - только по нижней неделе' in elem:
             schedule[i - 1] = schedule[i - 1].rstrip('\n\n')
@@ -120,15 +120,10 @@ def init_send_schedule(schedule, number_group, day, week_type, cur):
         elif week_type == 'Нижняя':
             if ' - только по верхней неделе' in elem:
                 del schedule[i]
-    cur.execute(f'INSERT INTO group_{number_group} VALUES (%s, %s, %s)',
-                (day, week_type == "Верхняя", ''.join(schedule)))
+    query = f'INSERT INTO group_{number_group} (week_day, group_week_type, group_data) VALUES (%s, %s, %s)'
+    Database.execute_query(query, (day, week_type == "Верхняя", ''.join(schedule)))
 
 def get_schedule_ptk(group_student, day_of_week, week_type):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(f'SELECT group_data FROM group_{group_student} WHERE week_day=\'{day_of_week}\' AND group_week_type={week_type=="Верхняя"}')
-    schedule = cur.fetchone()
-    
-    conn.commit()
-    conn.close()
+    query = f'SELECT group_data FROM group_{group_student} WHERE week_day=%s AND group_week_type=%s'
+    schedule = Database.execute_query(query, (day_of_week, week_type == "Верхняя"), fetch=True)
     return schedule
