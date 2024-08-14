@@ -1,8 +1,11 @@
 import telebot
+import time
+import threading
 import requests
 
 from telebot import types
 from bs4 import BeautifulSoup as BS
+from datetime import datetime
 
 from code.db import Database
 from code.menu_handler import *
@@ -18,17 +21,17 @@ STATE_SELECTING_WEEK_TYPE = 'selecting_week_type'
 STATE_SELECTING_DAY = 'selecting_day'
 
 bot = telebot.TeleBot(get_telegram_token())
+update_lock = threading.Lock()
 
 days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
 
 user_context = {}
 group = []
 
-cur = None
-group_student = None
-day_of_week = None
-week_type = None
-college = None
+# group_student = None
+# day_of_week = None
+# week_type = None
+# college = None
 
 def init_list_group(first_group_number, college, list_group):
     course = 1
@@ -91,69 +94,72 @@ def main_menu(message):
 
 
 @bot.message_handler(content_types=['text'])
-def bot_message(message):
-    global group, group_student, week_type, college
-    
-    # Инициализация контекста как словаря
-    if message.chat.id not in user_context:
-        user_context[message.chat.id] = {'state': STATE_MAIN_MENU}
+def handle_all_messages(message):
+    if update_lock.locked():
+        bot.send_message(message.chat.id, "Сейчас происходит обновление расписания, прошу подождать пару минут (^._.^)~")
+    else:
+        global group, group_student, week_type, college
+        
+        # Инициализация контекста как словаря
+        if message.chat.id not in user_context:
+            user_context[message.chat.id] = {'state': STATE_MAIN_MENU}
 
-    user_data = user_context[message.chat.id]
-    current_state = user_data.get('state', STATE_MAIN_MENU)
-    
-    switch = {
-        STATE_MAIN_MENU: {
-            'Узнать геопозицию': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_SELECTING_LOCATION, handle_geolocation),
-            'Узнать расписание': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_SELECTING_SCHEDULE, handle_schedule_request),
-            'Главное меню': lambda msg: handle_main_menu(bot, msg),
-        },
-        STATE_SELECTING_LOCATION: {
-            'Главный корпус': lambda msg: handle_location(bot, msg, 58.542306, 31.261174, '📍Местоположение Главного корпуса: Большая Санкт-Петербургская, 41'),
-            'Политехнический колледж': lambda msg: handle_location(bot, msg, 58.541668, 31.264534, '📍Местоположение ПТК: Большая Санкт-Петербургская, 46'),
-            'Антоново': lambda msg: handle_location(bot, msg, 58.541079, 31.288108, '📍Местоположение ИГУМ: район Антоново, 1'),
-            'ИЦЭУС': lambda msg: handle_location(bot, msg, 58.522347, 31.258228, '📍Местоположение ИЦЭУС: Псковская улица, 3'),
-            'ИМО': lambda msg: handle_location(bot, msg, 58.542809, 31.310567, '📍Местоположение ИМО: улица Державина, 6'),
-            'ИБХИ': lambda msg: handle_location(bot, msg, 58.551745, 31.300628, '📍Местоположение ИБХИ: улица Советской Армии, 7'),
-            'ПИ': lambda msg: handle_location(bot, msg, 58.523945, 31.262243, '📍Местоположение ПИ: улица Черняховского, 64/6'),
-            'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
-        },
-        STATE_SELECTING_SCHEDULE: {
-            'ПТК': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'ptk', generate_course_menu),
-            'СПО ИНПО': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'spoinpo', generate_course_menu),
-            'Мед.колледж': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'medcol', generate_course_menu),
-            'СПО ИЦЭУС': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'pedcol', generate_course_menu),
-            'СПО ИЮР': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'spour', generate_course_menu),
-            'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
-        },
-        STATE_SELECTING_COURSE: {
-            '1 курс': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),
-            '2 курс': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),
-            '3 курс': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),
-            '4 курс': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),
-            '5 курс': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),
-            '6 курс': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),
-            'Назад': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_SELECTING_SCHEDULE, handle_schedule_request),
-            'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
-        },
-        STATE_SELECTING_GROUP: {
-            **{grp: lambda msg, group=grp: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_WEEK_TYPE, handle_group_selection, group) for grp in group},
-            'Назад': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, user_data.get('college'), generate_course_menu),
-            'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
-        },
-        STATE_SELECTING_WEEK_TYPE: {
-            'Верхняя': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_DAY, handle_week_selection, 'Верхняя'),
-            'Нижняя': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_DAY, handle_week_selection, 'Нижняя'),
-            'Назад': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),  
-            'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
-        },
-        STATE_SELECTING_DAY: {
-            **{day: lambda msg, d=day: handle_display_schedule(bot, msg, user_data.get('group'), user_data.get('week_type'), d, get_schedule_ptk) for day in ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']}, 
-            'Назад': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_WEEK_TYPE, handle_group_selection, user_data.get('group')),
-            'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
-        },
-    }
-    handler = switch.get(current_state, {}).get(message.text, lambda msg: handle_unknown(bot, user_context, msg, STATE_MAIN_MENU))
-    handler(message)
+        user_data = user_context[message.chat.id]
+        current_state = user_data.get('state', STATE_MAIN_MENU)
+        
+        switch = {
+            STATE_MAIN_MENU: {
+                'Узнать геопозицию': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_SELECTING_LOCATION, handle_geolocation),
+                'Узнать расписание': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_SELECTING_SCHEDULE, handle_schedule_request),
+                'Главное меню': lambda msg: handle_main_menu(bot, msg),
+            },
+            STATE_SELECTING_LOCATION: {
+                'Главный корпус': lambda msg: handle_location(bot, msg, 58.542306, 31.261174, '📍Местоположение Главного корпуса: Большая Санкт-Петербургская, 41'),
+                'Политехнический колледж': lambda msg: handle_location(bot, msg, 58.541668, 31.264534, '📍Местоположение ПТК: Большая Санкт-Петербургская, 46'),
+                'Антоново': lambda msg: handle_location(bot, msg, 58.541079, 31.288108, '📍Местоположение ИГУМ: район Антоново, 1'),
+                'ИЦЭУС': lambda msg: handle_location(bot, msg, 58.522347, 31.258228, '📍Местоположение ИЦЭУС: Псковская улица, 3'),
+                'ИМО': lambda msg: handle_location(bot, msg, 58.542809, 31.310567, '📍Местоположение ИМО: улица Державина, 6'),
+                'ИБХИ': lambda msg: handle_location(bot, msg, 58.551745, 31.300628, '📍Местоположение ИБХИ: улица Советской Армии, 7'),
+                'ПИ': lambda msg: handle_location(bot, msg, 58.523945, 31.262243, '📍Местоположение ПИ: улица Черняховского, 64/6'),
+                'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
+            },
+            STATE_SELECTING_SCHEDULE: {
+                'ПТК': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'ptk', generate_course_menu),
+                'СПО ИНПО': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'spoinpo', generate_course_menu),
+                'Мед.колледж': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'medcol', generate_course_menu),
+                'СПО ИЦЭУС': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'pedcol', generate_course_menu),
+                'СПО ИЮР': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, 'spour', generate_course_menu),
+                'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
+            },
+            STATE_SELECTING_COURSE: {
+                '1 курс': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),
+                '2 курс': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),
+                '3 курс': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),
+                '4 курс': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),
+                '5 курс': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),
+                '6 курс': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),
+                'Назад': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_SELECTING_SCHEDULE, handle_schedule_request),
+                'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
+            },
+            STATE_SELECTING_GROUP: {
+                **{grp: lambda msg, group=grp: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_WEEK_TYPE, handle_group_selection, group) for grp in group},
+                'Назад': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_COURSE, handle_college_selection, user_data.get('college'), generate_course_menu),
+                'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
+            },
+            STATE_SELECTING_WEEK_TYPE: {
+                'Верхняя': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_DAY, handle_week_selection, 'Верхняя'),
+                'Нижняя': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_DAY, handle_week_selection, 'Нижняя'),
+                'Назад': lambda msg: handle_show_groups(bot, user_context, user_data, msg, STATE_SELECTING_GROUP),  
+                'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
+            },
+            STATE_SELECTING_DAY: {
+                **{day: lambda msg, d=day: handle_display_schedule(bot, msg, user_data.get('group'), user_data.get('week_type'), d, get_schedule_ptk) for day in ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']}, 
+                'Назад': lambda msg: handle_transition_with_context(bot, user_context, msg, STATE_SELECTING_WEEK_TYPE, handle_group_selection, user_data.get('group')),
+                'Главное меню': lambda msg: handle_transition_no_context(bot, user_context, msg, STATE_MAIN_MENU, handle_main_menu),
+            },
+        }
+        handler = switch.get(current_state, {}).get(message.text, lambda msg: handle_unknown(bot, user_context, msg, STATE_MAIN_MENU))
+        handler(message)
 
 def bot_send_location_and_message(bot, message, latitude, longitude, str):
     bot.send_location(message.chat.id, latitude, longitude)
@@ -201,13 +207,13 @@ def init_schedule(soup):
                 if schedule != []:
                     init_send_schedule(schedule, number_group, day, "Верхняя")
                     init_send_schedule(schedule, number_group, day, "Нижняя")
-    
-def main():
-    global cur
+
+def update_database():
+    print("Обновление базы данных начато")
     
     url = 'https://portal.novsu.ru/univer/timetable/spo/'
-    Database.rebuild_db()
     
+    Database.rebuild_db()
     response = requests.get(url)
     html = response.text
 
@@ -220,7 +226,8 @@ def main():
     init_get_list_group('medcol')
     init_get_list_group('spour')
     init_get_list_group('spoinpo')
-
+                    
+    fetch_group_ids('ptk', group)
     fetch_group_ids('pedcol', group)
     fetch_group_ids('medcol', group)
     fetch_group_ids('spour', group)
@@ -228,6 +235,27 @@ def main():
     
     init_schedule(soup)
     
+    print("Обновление базы данных завершено") 
+                    
+def update_thread():    
+    while True:
+        current_hour = datetime.now().hour
+        if current_hour == 4:
+            try:
+                with update_lock:
+                    update_database()
+                
+            except Exception as e:
+                print(f"Error during database update: {e}")
+        print(current_hour)
+        time.sleep(3600)
+
+def main():
+    db_update_thread = threading.Thread(target=update_thread)
+    db_update_thread.daemon = True 
+    db_update_thread.start()
+    
+    update_database()
     bot.polling()
 
 if __name__ == '__main__':
