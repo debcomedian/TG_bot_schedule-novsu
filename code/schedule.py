@@ -120,8 +120,8 @@ def init_send_schedule(schedule, number_group, day, week_type):
         elif week_type == 'Нижняя':
             if ' - только по верхней неделе' in elem:
                 del schedule[i]
-    query = f'INSERT INTO group_{number_group} (week_day, group_week_type, group_data) VALUES (%s, %s, %s)'
-    Database.execute_query(query, (day, week_type == "Верхняя", ''.join(schedule)))
+    query = f'INSERT INTO group_{number_group} (week_day, group_week_type, group_data) VALUES (%s, %s, %s)'.join(schedule)
+    Database.execute_query(query, (day, week_type == "Верхняя"))
 
 def get_schedule_ptk(group_student, day_of_week, week_type):
     query = f'SELECT group_data FROM group_{group_student} WHERE week_day=%s AND group_week_type=%s'
