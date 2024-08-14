@@ -47,7 +47,7 @@ class Database:
             CREATE TABLE groups_students_spoinpo (group_course SMALLINT NOT NULL, group_id VARCHAR(6) NOT NULL);
         '''
         Database.execute_query(query)
-
+        
     @staticmethod
     def rebuild_group_table(group):
         query_drop = f'DROP TABLE IF EXISTS group_{group}'
