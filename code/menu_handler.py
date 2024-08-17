@@ -32,7 +32,7 @@ def handle_schedule_request(bot, message):
     markup_replay.add(item_PTK, item_PED, item_IUR, item_MED, item_EKO).add(item_main)
     bot.send_message(message.chat.id, '🏫Какой колледж вас интересует?', reply_markup=markup_replay)
 
-def handle_college_selection(bot, user_context, message, college_code, generate_course_menu):
+def handle_college_selection(bot, user_context, message, college_code):
     user_context[message.chat.id]['college'] = college_code
     markup_replay = generate_course_menu(college_code)
     bot.send_message(message.chat.id, '❓ Какой вы курс?', reply_markup=markup_replay)
@@ -96,9 +96,11 @@ def handle_display_schedule(bot, message, group, week_type, day, get_schedule_pt
 
 def handle_main_menu(bot, message):
     markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    item_geolacation = types.KeyboardButton('Узнать геопозицию')
+    item_geolocation = types.KeyboardButton('Узнать геопозицию')
     item_schedule = types.KeyboardButton('Узнать расписание')
-    markup_replay.add(item_schedule, item_geolacation)
+    item_settings = types.KeyboardButton('Настроить ежедневные оповещения')
+    item_setting_reset = types.KeyboardButton('Сброс оповещений')
+    markup_replay.add(item_schedule).add(item_geolocation).add(item_settings).add(item_setting_reset)
     bot.send_message(message.chat.id, 'Главное меню', reply_markup=markup_replay)
 
 def handle_unknown(bot, user_state, message, STATE_MAIN_MENU):
@@ -120,3 +122,86 @@ def handle_transition_with_context(bot, user_context, message, next_state, handl
 def handle_transition_no_context(bot, user_context, message, next_state, handler, *args):
     user_context[message.chat.id]['state'] = next_state
     handler(bot, message, *args)
+
+def handle_select_college(bot, message):
+    markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    item_ptk = types.KeyboardButton('ПТК')
+    item_spoinpo = types.KeyboardButton('СПО ИНПО')
+    item_medcol = types.KeyboardButton('Мед.колледж')
+    item_pedcol = types.KeyboardButton('СПО ИЦЭУС')
+    item_spour = types.KeyboardButton('СПО ИЮР')
+    item_back = types.KeyboardButton('Назад')
+    markup_replay.add(item_ptk, item_spoinpo, item_medcol, item_pedcol, item_spour, item_back)
+    bot.send_message(message.chat.id, 'Выберите колледж', reply_markup=markup_replay)
+
+def handle_select_course(bot, user_context, message, college):
+    user_context[message.chat.id]['college'] = college
+    markup_replay = generate_course_menu(college)
+    bot.send_message(message.chat.id, 'Выберите курс', reply_markup=markup_replay)
+    
+def handle_reset_settings(bot, message):
+    Database.execute_query(f"DELETE FROM users_notifications WHERE user_id = {message.chat.id}")
+    bot.send_message(message.chat.id, 'Ежедневные оповещения отключены')
+    handle_main_menu(bot, message)
+    
+def save_group_settings(bot, user_context, message, group):
+    user_context[message.chat.id]['group'] = group
+    markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    
+    item_15 = types.KeyboardButton('15:00')
+    item_16 = types.KeyboardButton('16:00')
+    item_17 = types.KeyboardButton('17:00')
+    item_18 = types.KeyboardButton('18:00')
+    item_19 = types.KeyboardButton('19:00')
+    item_20 = types.KeyboardButton('20:00')
+    item_21 = types.KeyboardButton('21:00')
+    item_22 = types.KeyboardButton('22:00')
+    item_23 = types.KeyboardButton('23:00')
+    item_back = types.KeyboardButton('Назад')
+    item_main_menu = types.KeyboardButton('Главное меню')
+    
+    markup_replay.add(item_15, item_16, item_17, item_18, item_19, item_20, item_21, item_22, item_23).add(item_back).add(item_main_menu)
+    bot.send_message(message.chat.id, 'Выберите время для рассылки оповещения', reply_markup=markup_replay)
+
+def save_notification_time(bot, user_context, message, time_notification, state):
+    user_id = message.chat.id
+    user_data = user_context.get(user_id, {})
+
+    college = user_data.get('college')
+    user_group = user_data.get('group')
+
+    query = '''
+        INSERT INTO users_notifications (user_id, college, user_group, checked, time_notification)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (user_id)
+            DO UPDATE SET 
+            college = EXCLUDED.college,
+            user_group = EXCLUDED.user_group,
+            checked = EXCLUDED.checked,
+            time_notification = EXCLUDED.time_notification;
+    '''
+    Database.execute_query(query, (user_id, college, user_group, False, time_notification[:2]))
+
+    user_context[user_id]['state'] = state
+    bot.send_message(user_id, f'Настройки обновлены')
+    handle_main_menu(bot, message)
+    
+def generate_course_menu(college):
+    markup_replay = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    course_list = sorted(fetch_college_courses(college))
+    
+    for course in course_list:
+        markup_replay.add(types.KeyboardButton(f'{course} курс'))
+    
+    item_main = types.KeyboardButton('Главное меню')
+    item_back = types.KeyboardButton('Назад')
+    markup_replay.add(item_back).add(item_main)
+    return markup_replay
+
+def fetch_college_courses(college):
+    temp = Database.execute_query(f'SELECT DISTINCT group_course FROM groups_students_{college}', fetch=True)
+    course_list = []
+    
+    for item in temp:
+        course_list.append(item[0])
+    return course_list

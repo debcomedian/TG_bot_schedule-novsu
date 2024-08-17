@@ -45,6 +45,8 @@ class Database:
             CREATE TABLE groups_students_medcol (group_course SMALLINT NOT NULL, group_id VARCHAR(6) NOT NULL);
             CREATE TABLE groups_students_spour (group_course SMALLINT NOT NULL, group_id VARCHAR(6) NOT NULL);
             CREATE TABLE groups_students_spoinpo (group_course SMALLINT NOT NULL, group_id VARCHAR(6) NOT NULL);
+            CREATE TABLE IF NOT EXISTS users_notifications (user_id BIGINT NOT NULL PRIMARY KEY, college VARCHAR(7) NOT NULL, checked BOOLEAN NOT NULL, 
+                                                            user_group SMALLINT NOT NULL, time_notification VARCHAR(2) NOT NULL);
         '''
         Database.execute_query(query)
         
